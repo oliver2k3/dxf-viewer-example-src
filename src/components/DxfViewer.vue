@@ -1,5 +1,5 @@
 <template>
-<div class="canvasContainer" ref="canvasContainer">
+<div class="canvasContainer" ref="canvasContainer" @mousemove="_OnMouseMove">
     <q-inner-loading :showing="isLoading" color="primary" style="z-index: 10"/>
     <div v-if="progress !== null" class="progress">
         <q-linear-progress color="primary" :indeterminate="progress < 0" :value="progress" />
@@ -7,6 +7,11 @@
     </div>
     <div v-if="error !== null" class="error" :title="error">
         <q-icon name="warning" class="text-red" style="font-size: 4rem;" /> Error occurred: {{error}}
+    </div>
+    <div v-if="coordinates !== null" class="coordinates">
+        <div class="coord-label">X: <span class="coord-value">{{ coordinates.x.toFixed(2) }}</span></div>
+        <div class="coord-label">Y: <span class="coord-value">{{ coordinates.y.toFixed(2) }}</span></div>
+        <div class="coord-label">Z: <span class="coord-value">{{ coordinates.z.toFixed(2) }}</span></div>
     </div>
 </div>
 </template>
@@ -51,7 +56,8 @@ export default {
             progress: null,
             progressText: null,
             curProgressPhase: null,
-            error: null
+            error: null,
+            coordinates: null
         }
     },
 
@@ -79,6 +85,15 @@ export default {
                     progressCbk: this._OnProgress.bind(this),
                     workerFactory: DxfViewerWorker
                 })
+                // Initialize coordinates to center after load
+                if (this.dxfViewer.camera) {
+                    const camera = this.dxfViewer.camera
+                    this.coordinates = {
+                        x: (camera.left + camera.right) / 2,
+                        y: (camera.bottom + camera.top) / 2,
+                        z: 0
+                    }
+                }
             } catch (error) {
                 console.warn(error)
                 this.error = error.toString()
@@ -93,6 +108,47 @@ export default {
         /** @return {DxfViewer} */
         GetViewer() {
             return this.dxfViewer
+        },
+
+        _OnMouseMove(event) {
+            if (!this.dxfViewer) {
+                return
+            }
+            
+            const canvas = this.dxfViewer.GetCanvas()
+            if (!canvas) {
+                return
+            }
+            
+            const rect = canvas.getBoundingClientRect()
+            const x = event.clientX - rect.left
+            const y = event.clientY - rect.top
+            
+            // Convert screen coordinates to normalized device coordinates (-1 to +1)
+            const ndcX = (x / rect.width) * 2 - 1
+            const ndcY = -(y / rect.height) * 2 + 1
+            
+            // Get camera from viewer
+            const camera = this.dxfViewer.camera
+            if (!camera) {
+                return
+            }
+            
+            // For orthographic camera, calculate world coordinates
+            const camWidth = camera.right - camera.left
+            const camHeight = camera.top - camera.bottom
+            
+            const worldX = camera.left + (ndcX + 1) * camWidth / 2
+            const worldY = camera.bottom + (ndcY + 1) * camHeight / 2
+            
+            this.coordinates = {
+                x: worldX,
+                y: worldY,
+                z: 0
+            }
+            
+            // Emit event for parent components
+            this.$emit('coordinates-update', this.coordinates)
         },
 
         _OnProgress(phase, size, totalSize) {
@@ -174,6 +230,35 @@ export default {
             height: 24px;
             vertical-align: middle;
             margin: 4px;
+        }
+    }
+
+    .coordinates {
+        position: absolute;
+        bottom: 10px;
+        right: 10px;
+        background: rgba(255, 255, 255, 0.95);
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 8px 12px;
+        font-family: monospace;
+        font-size: 12px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        z-index: 5;
+        min-width: 140px;
+
+        .coord-label {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px 0;
+            color: #333;
+            font-weight: 500;
+
+            .coord-value {
+                margin-left: 10px;
+                color: #1976d2;
+                font-weight: 600;
+            }
         }
     }
 }
